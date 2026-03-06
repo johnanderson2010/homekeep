@@ -27,17 +27,9 @@ const storage = getStorage(firebaseApp);
 const auth = getAuth(firebaseApp);
 const provider = new GoogleAuthProvider();
 
-window._firebase = { db, storage, auth, provider, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject, signInWithPopup, signInWithRedirect, getRedirectResult, signOut };
+window._firebase = { db, storage, auth, provider, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject, signInWithRedirect, getRedirectResult, signOut };
 
-// Handle redirect result on page load (for iOS Safari which uses redirect instead of popup)
-try {
-  const result = await getRedirectResult(auth);
-  if (result?.user) {
-    console.log('Signed in via redirect:', result.user.displayName);
-  }
-} catch(e) { console.error('Redirect result error:', e); }
-
-// Watch auth state — this is the main entry point
+// Watch auth state — fires after redirect completes OR on normal page load
 onAuthStateChanged(auth, user => {
   if (user) {
     window._currentUser = user;
@@ -580,20 +572,15 @@ document.addEventListener('authSignedOut', () => {
 });
 
 async function signInWithGoogle() {
-  const { auth, provider, signInWithPopup, signInWithRedirect } = window._firebase;
+  const { auth, provider, signInWithRedirect } = window._firebase;
   const errEl = document.getElementById('loginError');
   errEl.style.display = 'none';
   try {
-    // Try popup first; fall back to redirect on iOS Safari
-    await signInWithPopup(auth, provider);
+    // Use redirect — works reliably on all browsers including iPhone Safari
+    await signInWithRedirect(auth, provider);
   } catch(err) {
-    if(err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-      // Fall back to redirect (works better on iPhone)
-      await signInWithRedirect(auth, provider);
-    } else {
-      errEl.textContent = 'Sign-in failed: ' + (err.message || err.code);
-      errEl.style.display = 'block';
-    }
+    errEl.textContent = 'Sign-in failed: ' + (err.message || err.code);
+    errEl.style.display = 'block';
   }
 }
 

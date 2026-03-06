@@ -10,6 +10,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDlyLteQSjL-ax1WaEw1gM7Hjk3FnvAR-c",
@@ -23,8 +24,29 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const storage = getStorage(firebaseApp);
-window._firebase = { db, storage, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject };
-document.dispatchEvent(new Event('firebaseReady'));
+const auth = getAuth(firebaseApp);
+const provider = new GoogleAuthProvider();
+
+window._firebase = { db, storage, auth, provider, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject, signInWithPopup, signInWithRedirect, getRedirectResult, signOut };
+
+// Handle redirect result on page load (for iOS Safari which uses redirect instead of popup)
+try {
+  const result = await getRedirectResult(auth);
+  if (result?.user) {
+    console.log('Signed in via redirect:', result.user.displayName);
+  }
+} catch(e) { console.error('Redirect result error:', e); }
+
+// Watch auth state — this is the main entry point
+onAuthStateChanged(auth, user => {
+  if (user) {
+    window._currentUser = user;
+    document.dispatchEvent(new CustomEvent('authReady', { detail: { user } }));
+  } else {
+    window._currentUser = null;
+    document.dispatchEvent(new Event('authSignedOut'));
+  }
+});
 </script>
 
 <style>
@@ -236,6 +258,28 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 .mobile-menu-btn{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:var(--text);}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:99;}
 
+/* ── Login Screen ── */
+.login-screen{position:fixed;inset:0;background:var(--accent);display:flex;align-items:center;justify-content:center;z-index:500;padding:24px;}
+.login-card{background:var(--surface);border-radius:24px;padding:48px 40px;max-width:400px;width:100%;text-align:center;box-shadow:var(--shadow-lg);}
+.login-logo{font-size:56px;margin-bottom:16px;}
+.login-title{font-family:'DM Serif Display',serif;font-size:36px;color:var(--accent);margin-bottom:8px;}
+.login-subtitle{font-size:15px;color:var(--text2);margin-bottom:36px;line-height:1.5;}
+.btn-google{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;padding:14px 24px;background:white;border:2px solid var(--border);border-radius:12px;cursor:pointer;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:600;color:var(--text);transition:all 0.2s;box-shadow:var(--shadow);}
+.btn-google:hover{border-color:var(--accent);box-shadow:var(--shadow-lg);transform:translateY(-1px);}
+.btn-google img{width:22px;height:22px;}
+.login-note{font-size:12px;color:var(--text3);margin-top:20px;line-height:1.6;}
+.login-error{background:var(--red-light);color:var(--red);border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none;}
+
+/* User avatar in topbar */
+.user-avatar{width:34px;height:34px;border-radius:50%;border:2px solid var(--border);cursor:pointer;object-fit:cover;}
+.user-menu{position:absolute;top:60px;right:24px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow-lg);padding:8px;min-width:200px;z-index:60;display:none;}
+.user-menu.open{display:block;}
+.user-menu-name{padding:10px 12px;font-weight:600;font-size:14px;border-bottom:1px solid var(--border);margin-bottom:6px;}
+.user-menu-email{font-size:12px;color:var(--text3);font-weight:400;}
+.user-menu-item{padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;color:var(--text2);display:flex;align-items:center;gap:8px;transition:background 0.15s;}
+.user-menu-item:hover{background:var(--surface2);}
+.user-menu-item.danger{color:var(--red);}
+
 @media(max-width:900px){
   .stats-row{grid-template-columns:repeat(2,1fr);}
   .sidebar{transform:translateX(-100%);}
@@ -260,14 +304,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 </head>
 <body>
 
-<div class="loading-overlay" id="loadingOverlay">
+<!-- ══ Login Screen ══ -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">🏡</div>
+    <div class="login-title">HomeKeep</div>
+    <div class="login-subtitle">Your personal home inventory manager.<br>Sign in to access your items.</div>
+    <div class="login-error" id="loginError"></div>
+    <button class="btn-google" onclick="signInWithGoogle()">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google">
+      Sign in with Google
+    </button>
+    <div class="login-note">Your data is private and only accessible to you.<br>We use your Google account only for sign-in.</div>
+  </div>
+</div>
+
+<!-- ══ User Menu ══ -->
+<div class="user-menu" id="userMenu">
+  <div class="user-menu-name">
+    <div id="menuUserName"></div>
+    <div class="user-menu-email" id="menuUserEmail"></div>
+  </div>
+  <div class="user-menu-item danger" onclick="doSignOut()">🚪 Sign Out</div>
+</div>
+
+<!-- ══ Loading Overlay ══ -->
+<div class="loading-overlay" id="loadingOverlay" style="display:none">
   <div class="spinner"></div>
   <div style="font-family:'DM Serif Display',serif;font-size:20px;color:var(--accent)">Connecting to HomeKeep…</div>
 </div>
 
 <div class="toast" id="toast"></div>
 
-<div class="app">
+<div class="app" id="appWrapper" style="display:none">
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
   <aside class="sidebar" id="sidebar">
@@ -301,6 +370,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <h2 id="topbar-title">Dashboard</h2>
       <div class="search-bar"><span>🔍</span><input type="text" placeholder="Search items…" id="searchInput" oninput="handleSearch()"></div>
       <button class="btn-primary" onclick="openAddModal()">+ Add Item</button>
+      <img id="userAvatarImg" class="user-avatar" src="" alt="Account" onclick="toggleUserMenu()" style="display:none">
     </header>
     <main class="content" id="mainContent"></main>
   </div>
@@ -467,11 +537,88 @@ let taskRowCount = 0;
 let ctContext = null; // { itemId, taskId, taskName }
 
 // ══════════════════════════════════════════════
-//  FIREBASE
+//  AUTH
 // ══════════════════════════════════════════════
-document.addEventListener('firebaseReady', () => {
+let firestoreUnsub1 = null, firestoreUnsub2 = null;
+
+const ALLOWED_EMAIL = 'andersonabode2@gmail.com';
+
+document.addEventListener('authReady', async (e) => {
+  const user = e.detail.user;
+
+  // Check this is the allowed account
+  if(user.email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()) {
+    const { auth, signOut } = window._firebase;
+    await signOut(auth);
+    const errEl = document.getElementById('loginError');
+    errEl.textContent = 'That Google account is not authorized. Please sign in with ' + ALLOWED_EMAIL;
+    errEl.style.display = 'block';
+    return;
+  }
+
+  // Correct user — show app
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('loadingOverlay').style.display = 'flex';
+  // Show avatar
+  const avatar = document.getElementById('userAvatarImg');
+  if(user.photoURL){ avatar.src = user.photoURL; avatar.style.display = 'block'; }
+  document.getElementById('menuUserName').textContent = user.displayName || 'User';
+  document.getElementById('menuUserEmail').textContent = user.email || '';
+  // Start data listeners
+  startDataListeners();
+});
+
+document.addEventListener('authSignedOut', () => {
+  // Stop listeners
+  if(firestoreUnsub1) firestoreUnsub1();
+  if(firestoreUnsub2) firestoreUnsub2();
+  appData = { items: [], maintenanceLogs: [] };
+  // Show login screen
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('userAvatarImg').style.display = 'none';
+});
+
+async function signInWithGoogle() {
+  const { auth, provider, signInWithPopup, signInWithRedirect } = window._firebase;
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+  try {
+    // Try popup first; fall back to redirect on iOS Safari
+    await signInWithPopup(auth, provider);
+  } catch(err) {
+    if(err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+      // Fall back to redirect (works better on iPhone)
+      await signInWithRedirect(auth, provider);
+    } else {
+      errEl.textContent = 'Sign-in failed: ' + (err.message || err.code);
+      errEl.style.display = 'block';
+    }
+  }
+}
+
+async function doSignOut() {
+  const { auth, signOut } = window._firebase;
+  toggleUserMenu();
+  await signOut(auth);
+}
+
+function toggleUserMenu() {
+  document.getElementById('userMenu').classList.toggle('open');
+}
+
+// Close user menu if clicking outside
+document.addEventListener('click', e => {
+  const menu = document.getElementById('userMenu');
+  const avatar = document.getElementById('userAvatarImg');
+  if(menu.classList.contains('open') && !menu.contains(e.target) && e.target !== avatar) {
+    menu.classList.remove('open');
+  }
+});
+
+function startDataListeners() {
   const { db, collection, onSnapshot } = window._firebase;
-  onSnapshot(collection(db,'items'), snap => {
+  firestoreUnsub1 = onSnapshot(collection(db,'items'), snap => {
     appData.items = snap.docs.map(d=>({id:d.id,...d.data()}));
     setSyncStatus(true);
     refreshCurrentView();
@@ -483,11 +630,13 @@ document.addEventListener('firebaseReady', () => {
     document.getElementById('loadingOverlay').style.display='none';
     showToast('Could not connect. Check internet.','error');
   });
-  onSnapshot(collection(db,'maintenanceLogs'), snap => {
+  firestoreUnsub2 = onSnapshot(collection(db,'maintenanceLogs'), snap => {
     appData.maintenanceLogs = snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshCurrentView();
   });
-});
+}
+
+
 
 function setSyncStatus(online) {
   const dot=document.getElementById('syncDot'), lbl=document.getElementById('syncLabel');
@@ -1300,6 +1449,8 @@ async function importData(e){
 // ══════════════════════════════════════════════
 //  INIT
 // ══════════════════════════════════════════════
+// App starts showing login screen (set in HTML)
+// Auth listener in Firebase module handles transition
 renderSidebarRooms();
 showView('dashboard');
 </script>

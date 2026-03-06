@@ -278,6 +278,52 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
   .task-row-fields{grid-template-columns:1fr;}
   .detail-header{flex-direction:column;align-items:flex-start;}
 }
+
+/* ── Calendar ── */
+.calendar-nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.calendar-nav-title{font-family:'DM Serif Display',serif;font-size:22px;}
+.calendar-nav-btns{display:flex;gap:8px;}
+.calendar-grid{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.calendar-header{display:grid;grid-template-columns:repeat(7,1fr);border-bottom:1px solid var(--border);}
+.calendar-dow{padding:10px;text-align:center;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);background:var(--surface2);}
+.calendar-body{display:grid;grid-template-columns:repeat(7,1fr);}
+.calendar-day{min-height:90px;padding:8px;border-right:1px solid var(--border);border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s;position:relative;}
+.calendar-day:nth-child(7n){border-right:none;}
+.calendar-day:hover{background:var(--accent-light);}
+.calendar-day.other-month{background:var(--bg);opacity:0.5;}
+.calendar-day.today{background:var(--accent-light);}
+.calendar-day.today .day-num{background:var(--accent);color:white;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;}
+.day-num{font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px;width:26px;height:26px;display:flex;align-items:center;justify-content:center;}
+.day-events{display:flex;flex-direction:column;gap:2px;}
+.day-event{font-size:11px;font-weight:500;padding:2px 5px;border-radius:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+.day-event.due{background:#EEF2FF;color:#4338CA;}
+.day-event.due.overdue{background:var(--red-light);color:var(--red);}
+.day-event.due.soon{background:var(--yellow-light);color:#A06B10;}
+.day-event.completed{background:var(--accent-light);color:var(--accent);}
+.day-event.more{background:var(--surface2);color:var(--text3);font-style:italic;}
+/* Day detail panel */
+.cal-detail{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-top:16px;box-shadow:var(--shadow);}
+.cal-detail-title{font-family:'DM Serif Display',serif;font-size:18px;margin-bottom:14px;}
+.cal-event-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer;}
+.cal-event-row:last-child{border-bottom:none;}
+.cal-event-row:hover .cal-event-name{color:var(--accent);}
+.cal-event-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
+.cal-event-dot.due{background:#4338CA;}
+.cal-event-dot.overdue{background:var(--red);}
+.cal-event-dot.completed{background:var(--accent);}
+.cal-event-info{flex:1;}
+.cal-event-name{font-size:14px;font-weight:600;}
+.cal-event-item{font-size:12px;color:var(--text3);margin-top:2px;}
+.cal-event-type{font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;}
+.cal-event-type.due{background:#EEF2FF;color:#4338CA;}
+.cal-event-type.overdue{background:var(--red-light);color:var(--red);}
+.cal-event-type.completed{background:var(--accent-light);color:var(--accent);}
+@media(max-width:600px){
+  .calendar-day{min-height:60px;padding:4px;}
+  .day-event{display:none;}
+  .day-num{font-size:12px;}
+  .calendar-day.has-events::after{content:'•';position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:14px;color:var(--accent);}
+}
 </style>
 </head>
 <body>
@@ -332,6 +378,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <div class="nav-item" onclick="showView('items')" id="nav-items"><span class="icon">📦</span> All Items</div>
       <div class="nav-item" onclick="showView('maintenance')" id="nav-maintenance"><span class="icon">🔧</span> Maintenance <span class="badge" id="maint-badge" style="display:none">0</span></div>
       <div class="nav-item" onclick="showView('warranties')" id="nav-warranties"><span class="icon">📋</span> Warranties</div>
+      <div class="nav-item" onclick="showView('calendar')" id="nav-calendar"><span class="icon">📅</span> Calendar</div>
       <div class="nav-label">Rooms</div>
       <div id="room-nav"></div>
     </nav>
@@ -651,13 +698,14 @@ function showView(view,extra){
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.remove('active'));
   const navEl=document.getElementById('nav-'+view);
   if(navEl)navEl.classList.add('active');
-  const titles={dashboard:'Dashboard',items:'All Items',maintenance:'Maintenance',warranties:'Warranties'};
+  const titles={dashboard:'Dashboard',items:'All Items',maintenance:'Maintenance',warranties:'Warranties',calendar:'Calendar'};
   document.getElementById('topbar-title').textContent=titles[view]||extra||view;
   if(view==='dashboard')renderDashboard();
   else if(view==='items')renderItems();
   else if(view==='maintenance')renderMaintenance();
   else if(view==='warranties')renderWarranties();
   else if(view==='detail')renderDetail(extra);
+  else if(view==='calendar')renderCalendar();
   closeSidebar();
 }
 
@@ -1317,6 +1365,174 @@ function parseAndFillFields(text){
   if(dateMatch&&!document.getElementById('f-purchase-date').value){
     try{const[,m,d,y]=dateMatch;const year=y.length===2?'20'+y:y;document.getElementById('f-purchase-date').value=`${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;}catch(e){}
   }
+}
+
+
+// ══════════════════════════════════════════════
+//  CALENDAR VIEW
+// ══════════════════════════════════════════════
+let calYear = new Date().getFullYear();
+let calMonth = new Date().getMonth();
+let calSelectedDay = null;
+
+function renderCalendar() {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  // Build event map: 'YYYY-MM-DD' -> [{type, label, itemName, itemId, taskId}]
+  const eventMap = {};
+
+  function addEvent(dateStr, event) {
+    if(!dateStr) return;
+    if(!eventMap[dateStr]) eventMap[dateStr] = [];
+    eventMap[dateStr].push(event);
+  }
+
+  // Maintenance due dates
+  for(const item of appData.items) {
+    for(const task of (item.maintenanceTasks||[])) {
+      if(task.nextDue) {
+        const d = daysUntil(task.nextDue);
+        addEvent(task.nextDue, {
+          type: d < 0 ? 'overdue' : 'due',
+          label: task.name,
+          itemName: item.name,
+          itemId: item.id,
+        });
+      }
+    }
+  }
+
+  // Maintenance completion history
+  for(const log of appData.maintenanceLogs) {
+    if(log.date) {
+      const item = appData.items.find(i=>i.id===log.itemId);
+      addEvent(log.date, {
+        type: 'completed',
+        label: log.task,
+        itemName: item ? item.name : 'Unknown item',
+        itemId: log.itemId,
+      });
+    }
+  }
+
+  // Build calendar grid
+  const firstDay = new Date(calYear, calMonth, 1);
+  const lastDay = new Date(calYear, calMonth+1, 0);
+  const startDow = firstDay.getDay(); // 0=Sun
+  const daysInMonth = lastDay.getDate();
+
+  // Days from previous month to fill first row
+  const prevMonthDays = startDow;
+  const prevMonthLast = new Date(calYear, calMonth, 0).getDate();
+
+  let dayCells = '';
+
+  // Prev month filler days
+  for(let i = prevMonthDays-1; i >= 0; i--) {
+    const d = prevMonthLast - i;
+    dayCells += `<div class="calendar-day other-month"><div class="day-num">${d}</div></div>`;
+  }
+
+  // Current month days
+  for(let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayDate = new Date(calYear, calMonth, d);
+    const isToday = dayDate.getTime() === today.getTime();
+    const events = eventMap[dateStr] || [];
+    const hasEvents = events.length > 0;
+    const isSelected = calSelectedDay === dateStr;
+
+    const maxShow = 3;
+    const eventDots = events.slice(0, maxShow).map(e =>
+      `<div class="day-event ${e.type}" title="${e.label} — ${e.itemName}">${e.label}</div>`
+    ).join('');
+    const more = events.length > maxShow ? `<div class="day-event more">+${events.length-maxShow} more</div>` : '';
+
+    dayCells += `<div class="calendar-day ${isToday?'today':''} ${hasEvents?'has-events':''} ${isSelected?'selected-day':''}"
+      onclick="selectCalDay('${dateStr}')"
+      style="${isSelected?'background:var(--accent-light);border-color:var(--accent);':''}"
+    >
+      <div class="day-num">${d}</div>
+      <div class="day-events">${eventDots}${more}</div>
+    </div>`;
+  }
+
+  // Next month filler
+  const totalCells = prevMonthDays + daysInMonth;
+  const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for(let d = 1; d <= remainingCells; d++) {
+    dayCells += `<div class="calendar-day other-month"><div class="day-num">${d}</div></div>`;
+  }
+
+  // Legend
+  const legend = `
+    <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:13px;align-items:center">
+      <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;border-radius:3px;background:#EEF2FF;border:1px solid #C7D2FE"></div> Due</div>
+      <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;border-radius:3px;background:var(--red-light);border:1px solid var(--red)"></div> Overdue</div>
+      <div style="display:flex;align-items:center;gap:6px"><div style="width:12px;height:12px;border-radius:3px;background:var(--accent-light);border:1px solid var(--accent)"></div> Completed</div>
+    </div>`;
+
+  // Selected day detail
+  let dayDetail = '';
+  if(calSelectedDay && eventMap[calSelectedDay]) {
+    const events = eventMap[calSelectedDay];
+    const [y,m,d] = calSelectedDay.split('-');
+    const label = new Date(parseInt(y),parseInt(m)-1,parseInt(d)).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+    dayDetail = `
+      <div class="cal-detail">
+        <div class="cal-detail-title">📅 ${label}</div>
+        ${events.map(e=>`
+          <div class="cal-event-row" onclick="showView('detail','${e.itemId}')">
+            <div class="cal-event-dot ${e.type}"></div>
+            <div class="cal-event-info">
+              <div class="cal-event-name">${e.label}</div>
+              <div class="cal-event-item">${e.itemName}</div>
+            </div>
+            <span class="cal-event-type ${e.type}">${e.type==='completed'?'Completed':e.type==='overdue'?'Overdue':'Due'}</span>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  document.getElementById('mainContent').innerHTML = `
+    <div class="calendar-nav">
+      <div class="calendar-nav-btns">
+        <button class="btn-secondary" onclick="calNav(-1)">← Prev</button>
+        <button class="btn-secondary" onclick="calToday()">Today</button>
+        <button class="btn-secondary" onclick="calNav(1)">Next →</button>
+      </div>
+      <div class="calendar-nav-title">${monthNames[calMonth]} ${calYear}</div>
+      <div style="font-size:13px;color:var(--text3)">${Object.values(eventMap).flat().length} events this month</div>
+    </div>
+    ${legend}
+    <div class="calendar-grid">
+      <div class="calendar-header">
+        ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=>`<div class="calendar-dow">${d}</div>`).join('')}
+      </div>
+      <div class="calendar-body">${dayCells}</div>
+    </div>
+    ${dayDetail}
+  `;
+}
+
+function calNav(dir) {
+  calMonth += dir;
+  if(calMonth > 11) { calMonth = 0; calYear++; }
+  if(calMonth < 0) { calMonth = 11; calYear--; }
+  calSelectedDay = null;
+  renderCalendar();
+}
+
+function calToday() {
+  calYear = new Date().getFullYear();
+  calMonth = new Date().getMonth();
+  calSelectedDay = null;
+  renderCalendar();
+}
+
+function selectCalDay(dateStr) {
+  calSelectedDay = calSelectedDay === dateStr ? null : dateStr;
+  renderCalendar();
 }
 
 // ══════════════════════════════════════════════

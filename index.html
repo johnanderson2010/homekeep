@@ -10,7 +10,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDlyLteQSjL-ax1WaEw1gM7Hjk3FnvAR-c",
@@ -24,21 +23,8 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const storage = getStorage(firebaseApp);
-const auth = getAuth(firebaseApp);
-const provider = new GoogleAuthProvider();
-
-window._firebase = { db, storage, auth, provider, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject, signInWithRedirect, getRedirectResult, signOut };
-
-// Watch auth state — fires after redirect completes OR on normal page load
-onAuthStateChanged(auth, user => {
-  if (user) {
-    window._currentUser = user;
-    document.dispatchEvent(new CustomEvent('authReady', { detail: { user } }));
-  } else {
-    window._currentUser = null;
-    document.dispatchEvent(new Event('authSignedOut'));
-  }
-});
+window._firebase = { db, storage, collection, doc, setDoc, deleteDoc, onSnapshot, ref, uploadBytes, getDownloadURL, deleteObject };
+document.dispatchEvent(new Event('firebaseReady'));
 </script>
 
 <style>
@@ -297,7 +283,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 <body>
 
 <!-- ══ Login Screen ══ -->
-<div class="login-screen" id="loginScreen">
+<div class="login-screen" id="loginScreen" style="display:none">
   <div class="login-card">
     <div class="login-logo">🏡</div>
     <div class="login-title">HomeKeep</div>
@@ -328,7 +314,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
 
 <div class="toast" id="toast"></div>
 
-<div class="app" id="appWrapper" style="display:none">
+<div class="app" id="appWrapper">
   <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
   <aside class="sidebar" id="sidebar">
@@ -362,7 +348,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min
       <h2 id="topbar-title">Dashboard</h2>
       <div class="search-bar"><span>🔍</span><input type="text" placeholder="Search items…" id="searchInput" oninput="handleSearch()"></div>
       <button class="btn-primary" onclick="openAddModal()">+ Add Item</button>
-      <img id="userAvatarImg" class="user-avatar" src="" alt="Account" onclick="toggleUserMenu()" style="display:none">
     </header>
     <main class="content" id="mainContent"></main>
   </div>
@@ -528,84 +513,10 @@ let taskRowCount = 0;
 // Complete task context
 let ctContext = null; // { itemId, taskId, taskName }
 
-// ══════════════════════════════════════════════
-//  AUTH
-// ══════════════════════════════════════════════
-let firestoreUnsub1 = null, firestoreUnsub2 = null;
-
-const ALLOWED_EMAIL = 'andersonabode2@gmail.com';
-
-document.addEventListener('authReady', async (e) => {
-  const user = e.detail.user;
-
-  // Check this is the allowed account
-  if(user.email.toLowerCase() !== ALLOWED_EMAIL.toLowerCase()) {
-    const { auth, signOut } = window._firebase;
-    await signOut(auth);
-    const errEl = document.getElementById('loginError');
-    errEl.textContent = 'That Google account is not authorized. Please sign in with ' + ALLOWED_EMAIL;
-    errEl.style.display = 'block';
-    return;
-  }
-
-  // Correct user — show app
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('loadingOverlay').style.display = 'flex';
-  // Show avatar
-  const avatar = document.getElementById('userAvatarImg');
-  if(user.photoURL){ avatar.src = user.photoURL; avatar.style.display = 'block'; }
-  document.getElementById('menuUserName').textContent = user.displayName || 'User';
-  document.getElementById('menuUserEmail').textContent = user.email || '';
-  // Start data listeners
-  startDataListeners();
-});
-
-document.addEventListener('authSignedOut', () => {
-  // Stop listeners
-  if(firestoreUnsub1) firestoreUnsub1();
-  if(firestoreUnsub2) firestoreUnsub2();
-  appData = { items: [], maintenanceLogs: [] };
-  // Show login screen
-  document.getElementById('loginScreen').style.display = 'flex';
-  document.getElementById('loadingOverlay').style.display = 'none';
-  document.getElementById('userAvatarImg').style.display = 'none';
-});
-
-async function signInWithGoogle() {
-  const { auth, provider, signInWithRedirect } = window._firebase;
-  const errEl = document.getElementById('loginError');
-  errEl.style.display = 'none';
-  try {
-    // Use redirect — works reliably on all browsers including iPhone Safari
-    await signInWithRedirect(auth, provider);
-  } catch(err) {
-    errEl.textContent = 'Sign-in failed: ' + (err.message || err.code);
-    errEl.style.display = 'block';
-  }
-}
-
-async function doSignOut() {
-  const { auth, signOut } = window._firebase;
-  toggleUserMenu();
-  await signOut(auth);
-}
-
-function toggleUserMenu() {
-  document.getElementById('userMenu').classList.toggle('open');
-}
-
-// Close user menu if clicking outside
-document.addEventListener('click', e => {
-  const menu = document.getElementById('userMenu');
-  const avatar = document.getElementById('userAvatarImg');
-  if(menu.classList.contains('open') && !menu.contains(e.target) && e.target !== avatar) {
-    menu.classList.remove('open');
-  }
-});
-
-function startDataListeners() {
+document.addEventListener('firebaseReady', () => {
   const { db, collection, onSnapshot } = window._firebase;
-  firestoreUnsub1 = onSnapshot(collection(db,'items'), snap => {
+  document.getElementById('loadingOverlay').style.display='flex';
+  onSnapshot(collection(db,'items'), snap => {
     appData.items = snap.docs.map(d=>({id:d.id,...d.data()}));
     setSyncStatus(true);
     refreshCurrentView();
@@ -617,11 +528,11 @@ function startDataListeners() {
     document.getElementById('loadingOverlay').style.display='none';
     showToast('Could not connect. Check internet.','error');
   });
-  firestoreUnsub2 = onSnapshot(collection(db,'maintenanceLogs'), snap => {
+  onSnapshot(collection(db,'maintenanceLogs'), snap => {
     appData.maintenanceLogs = snap.docs.map(d=>({id:d.id,...d.data()}));
     refreshCurrentView();
   });
-}
+});
 
 
 
